@@ -11,7 +11,7 @@ import mongoose from "mongoose";
 //setup dotenv
 import dotenv from "dotenv";
 dotenv.config();
-const mongoURI = "mongodb://mongo:27017/instagram";
+const mongoURI = "mongodb://127.0.0.1:27017/instagram";
 
 
 const app = express();
