@@ -50,8 +50,9 @@ io.on("connection", (socket: Socket) => {
         console.log(`${payload.username} subscribed`)
         // console.log(connectedUsers);
     })
-    socket.on("createRoom", (payload: { members: username[] }) => {
-        let { members } = payload;
+    socket.on("createRoom", (payload: { self: username, reciever: username }) => {
+        let { self, reciever } = payload;
+        const members = [self, reciever];
         console.log("members = ", members)
         if (members.length < 2) {
             socket.emit("roomCreateError", { status: "error", message: "not enough members" });
@@ -74,6 +75,8 @@ io.on("connection", (socket: Socket) => {
                 rooms.add(room)
                 console.log(rooms);
                 emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room)
+            } else {
+                socket.emit("room creation error", { message: `${reciever} not connected` })
             }
         }
     })
@@ -131,8 +134,6 @@ io.on("connection", (socket: Socket) => {
             }
         }, rooms);
         connectedRooms.forEach(connectedRoom => {
-            // emitAll("roomDissolved", { roomId: connectedRoom.roomId }, connectedRoom);
-            // rooms.delete(connectedRoom);
             connectedRoom.members = connectedRoom.members.filter(member => {
                 return member.socket !== socket;
             })
