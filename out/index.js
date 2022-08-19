@@ -56,15 +56,23 @@ io.on("connection", (socket) => {
             const allConnected = members.filter(member => {
                 return findFromSet((user) => { return user.username == member; }, connectedUsers) !== undefined;
             }).length == members.length;
+            const roomWithMembersAlreadyExists = findFromSet((room) => {
+                return JSON.stringify(room.members.map(m => m.username)) === JSON.stringify(members);
+            }, rooms);
             const roomId = sha256(members.join("") + (new Date().getTime()));
             if (allConnected) {
-                const room = {
-                    members: memberSockets,
-                    roomId: roomId,
-                };
-                rooms.add(room);
-                console.log(rooms);
-                emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room);
+                if (!roomWithMembersAlreadyExists) {
+                    const room = {
+                        members: memberSockets,
+                        roomId: roomId,
+                    };
+                    rooms.add(room);
+                    console.log(rooms);
+                    emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room);
+                }
+                else {
+                    socket.emit("room creation error", { message: "another session exists" });
+                }
             }
             else {
                 socket.emit("room creation error", { message: `${reciever} not connected` });
@@ -134,46 +142,26 @@ io.on("connection", (socket) => {
             connectedUsers.delete(delThis);
         }
     });
-    socket.on("spawnFollowNotification", (payload) => {
-        const { to, from } = payload;
-        const user = findFromSet((user) => { return user.username == to; }, connectedUsers);
-        if (user) {
-            user.socket.emit("newFollow", { from: from });
-        }
-        else {
+    socket.on("liked", (payload) => {
+        const { postId, to, from } = payload;
+        const reciever = findFromSet((user) => { return user.username == to; }, connectedUsers);
+        if (!reciever) {
             mongoose_1.default.connect(mongoURI).then(() => {
                 const newNotification = new Notification_1.default();
-                newNotification.to = to;
+                newNotification.type = "like";
+                newNotification.message = JSON.stringify({ postId });
+                newNotification.to = toolbar;
                 newNotification.from = from;
-                newNotification.type = "follow";
                 newNotification.save().then(() => {
                     User_1.default.findOne({ username: to }).then((user) => {
-                        user.pendingNotifications.push(newNotification._id);
+                        user.notifications.push(newNotification._id);
                         user.save();
                     });
                 });
             });
         }
-    });
-    socket.on("spawnUnFollowNotification", (payload) => {
-        const { to, from } = payload;
-        const user = findFromSet((user) => { return user.username == to; }, connectedUsers);
-        if (user) {
-            user.socket.emit("newUnFollow", { from: from });
-        }
         else {
-            mongoose_1.default.connect(mongoURI).then(() => {
-                const newNotification = new Notification_1.default();
-                newNotification.to = to;
-                newNotification.from = from;
-                newNotification.type = "unFollow";
-                newNotification.save().then(() => {
-                    User_1.default.findOne({ username: to }).then((user) => {
-                        user.pendingNotifications.push(newNotification._id);
-                        user.save();
-                    });
-                });
-            });
+            reciever.socket.emit("liked", { postId: postId, from: from });
         }
     });
 });

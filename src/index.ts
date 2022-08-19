@@ -5,7 +5,7 @@ import crypto from "crypto"
 import User from "./utils/User";
 import Message from "./utils/Message";
 import Notification from "./utils/Notification";
-import {user as dbUserType, user} from "./utils/type"
+import { user as dbUserType, user } from "./utils/type"
 
 import mongoose from "mongoose";
 //setup dotenv
@@ -66,15 +66,22 @@ io.on("connection", (socket: Socket) => {
             const allConnected = members.filter(member => {
                 return findFromSet<userSocket>((user) => { return user.username == member }, connectedUsers) !== undefined;
             }).length == members.length
+            const roomWithMembersAlreadyExists = findFromSet<roomType>((room) => {
+                return JSON.stringify(room.members.map(m => m.username)) === JSON.stringify(members)
+            }, rooms)
             const roomId = sha256(members.join("") + (new Date().getTime()));
             if (allConnected) {
-                const room = {
-                    members: memberSockets,
-                    roomId: roomId,
+                if (!roomWithMembersAlreadyExists) {
+                    const room = {
+                        members: memberSockets,
+                        roomId: roomId,
+                    }
+                    rooms.add(room)
+                    console.log(rooms);
+                    emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room)
+                } else {
+                    socket.emit("room creation error", { message: "another session exists" })
                 }
-                rooms.add(room)
-                console.log(rooms);
-                emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room)
             } else {
                 socket.emit("room creation error", { message: `${reciever} not connected` })
             }
@@ -93,7 +100,6 @@ io.on("connection", (socket: Socket) => {
             })
         }
     })
-
     socket.on("message", (payload: { to: username, from: username, message: string, roomId: string }) => {
         const { roomId, to, from, message } = payload;
         console.log("message payload = ", payload);
@@ -142,44 +148,25 @@ io.on("connection", (socket: Socket) => {
             connectedUsers.delete(delThis)
         }
     })
-    socket.on("spawnFollowNotification",(payload:{to:username,from:username})=>{
-        const {to,from}=payload;
-        const user=findFromSet<userSocket>((user)=>{return user.username==to},connectedUsers);
-        if(user){
-            user.socket.emit("newFollow",{from:from});
-        }else{
-            mongoose.connect(mongoURI).then(()=>{
+    socket.on("liked", (payload: { postId: string, to: username, from: username }) => {
+        const { postId, to, from } = payload;
+        const reciever = findFromSet<userSocket>((user) => { return user.username == to }, connectedUsers);
+        if (!reciever) {
+            mongoose.connect(mongoURI).then(() => {
                 const newNotification = new Notification();
-                newNotification.to = to;
+                newNotification.type = "like";
+                newNotification.message = JSON.stringify({ postId })
+                newNotification.to = toolbar;
                 newNotification.from = from;
-                newNotification.type = "follow";
-                newNotification.save().then(()=>{
-                    User.findOne({username:to}).then((user)=>{
-                        user.pendingNotifications.push(newNotification._id);
+                newNotification.save().then(() => {
+                    User.findOne({ username: to }).then((user) => {
+                        user.notifications.push(newNotification._id);
                         user.save()
                     })
                 })
             })
-        }
-    })
-    socket.on("spawnUnFollowNotification",(payload:{to:username,from:username})=>{
-        const {to,from}=payload;
-        const user=findFromSet<userSocket>((user)=>{return user.username==to},connectedUsers);
-        if(user){
-            user.socket.emit("newUnFollow",{from:from});
-        }else{
-            mongoose.connect(mongoURI).then(()=>{
-                const newNotification = new Notification();
-                newNotification.to = to;
-                newNotification.from = from;
-                newNotification.type = "unFollow";
-                newNotification.save().then(()=>{
-                    User.findOne({username:to}).then((user)=>{
-                        user.pendingNotifications.push(newNotification._id);
-                        user.save()
-                    })
-                })
-            })
+        } else {
+            reciever.socket.emit("liked", { postId: postId, from: from });
         }
     })
 })
