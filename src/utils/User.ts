@@ -58,7 +58,8 @@ const userSchema = new Schema({
     pendingNotifications: {
         type: [mongoose.SchemaTypes.ObjectId],
         ref: "Notification"
-    }
+    },
+    roomsToConnect: [String]
 })
 
 

@@ -63,7 +63,8 @@ const userSchema = new mongoose_1.Schema({
     pendingNotifications: {
         type: [mongoose_2.default.SchemaTypes.ObjectId],
         ref: "Notification"
-    }
+    },
+    roomsToConnect: [String]
 });
 const User = mongoose_1.models.User || (0, mongoose_1.model)("User", userSchema);
 exports.default = User;

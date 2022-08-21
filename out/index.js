@@ -85,12 +85,29 @@ io.on("connection", (socket) => {
                     console.log(rooms);
                     emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room);
                 }
-                else {
-                    socket.emit("room creation error", { message: "another session exists" });
-                }
             }
             else {
-                socket.emit("room creation error", { message: `${reciever} not connected` });
+                const room = {
+                    members: [{ username: self, sockets: [socket] }],
+                    roomId: roomId,
+                };
+                rooms.add(room);
+                console.log(rooms);
+                socket.emit("roomCreated", { status: "success", roomId: roomId, members: members });
+                mongoose_1.default.connect(mongoURI).then(() => {
+                    const newMessage = new Message_1.default();
+                    newMessage.to = reciever;
+                    newMessage.from = self;
+                    newMessage.roomId = roomId;
+                    newMessage.content = `room created while ${reciever} was offline`;
+                    newMessage.save().then(() => {
+                        User_1.default.findOne({ username: reciever }).then((user) => {
+                            user.pendingMessages.push(newMessage._id);
+                            user.save();
+                        });
+                    });
+                });
+                // socket.emit("room creation error", { message: `${reciever} not connected` })
             }
         }
     });
@@ -98,6 +115,7 @@ io.on("connection", (socket) => {
         const roomsToBeConnected = findMultipleFromSet((room) => { return payload.roomIds.includes(room.roomId); }, rooms);
         if (roomsToBeConnected) {
             roomsToBeConnected.forEach(room => {
+                console.log(room);
                 const members = room.members.map(member => member.username);
                 if (!members.includes(payload.username)) {
                     console.log(`${payload.username} joined ${room.roomId}`);
@@ -146,32 +164,16 @@ io.on("connection", (socket) => {
                         });
                     });
                 });
-                emitAll("newMessage", payload, room);
+                const user = findFromSet((user) => { return user.username == from; }, connectedUsers);
+                user?.sockets.forEach(socket => {
+                    socket.emit("newMessage", payload);
+                });
             }
         }
         else {
             socket.emit("Message Error", { status: "error", message: "room not found" });
         }
     });
-    // socket.on("disconnect", () => {
-    //     const delThis = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
-    //     const connectedRooms = findMultipleFromSet<roomType>((room) => {
-    //         try {
-    //             const mappedMembers = room.members.map(member => { return member.sockets });
-    //             return mappedMembers.includes(socket)
-    //         } catch (err) {
-    //             return false;
-    //         }
-    //     }, rooms);
-    //     connectedRooms.forEach(connectedRoom => {
-    //         connectedRoom.members = connectedRoom.members.filter(member => {
-    //             return member.sockets !== socket;
-    //         })
-    //     })
-    //     if (delThis) {
-    //         connectedUsers.delete(delThis)
-    //     }
-    // })
     socket.on("disconnect", () => {
         console.log("disconnected");
         const user = findFromSet((user) => { return user.sockets.includes(socket); }, connectedUsers);
