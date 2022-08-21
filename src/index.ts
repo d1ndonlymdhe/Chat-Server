@@ -179,7 +179,6 @@ io.on("connection", (socket: Socket) => {
     // })
     socket.on("disconnect", () => {
         console.log("disconnected");
-        const delThis = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
         const user = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
         if (user) {
             if (user.sockets.length > 1) {
@@ -199,8 +198,8 @@ io.on("connection", (socket: Socket) => {
                     })
                 })
             }
+            connectedUsers.delete(user)
         }
-
     })
 })
 
