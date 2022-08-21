@@ -30,12 +30,28 @@ const rooms = new Set();
 io.on("connection", (socket) => {
     console.log("a user connected");
     socket.on("subscribe", (payload) => {
-        const user = {
-            username: payload.username,
-            socket: socket,
-        };
-        connectedUsers.add(user);
-        console.log(`${payload.username} subscribed`);
+        const isAlreadySubscribed = findFromSet(user => user.username === payload.username, connectedUsers);
+        if (isAlreadySubscribed) {
+            isAlreadySubscribed.sockets.push(socket);
+            console.log(`${payload.username} subscribed again`);
+            console.log("hello");
+            const connectedRooms = findMultipleFromSet((room) => {
+                try {
+                    const members = room.members;
+                    return members.some(member => member.sockets.includes(socket));
+                }
+                catch (err) {
+                    return false;
+                }
+            }, rooms);
+            const connectedRoomIds = connectedRooms.map(room => room.roomId);
+            console.log("join These rooms", connectedRoomIds);
+            socket.emit("already subscribed", { joinThese: connectedRoomIds });
+        }
+        else {
+            connectedUsers.add({ username: payload.username, sockets: [socket] });
+            console.log(`${payload.username} subscribed`);
+        }
         // console.log(connectedUsers);
     });
     socket.on("createRoom", (payload) => {
@@ -85,7 +101,23 @@ io.on("connection", (socket) => {
                 const members = room.members.map(member => member.username);
                 if (!members.includes(payload.username)) {
                     console.log(`${payload.username} joined ${room.roomId}`);
-                    room.members.push({ username: payload.username, socket: socket });
+                    room.members.push({ username: payload.username, sockets: [socket] });
+                    console.log({ status: "success", roomId: room.roomId, members: members });
+                    socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members });
+                }
+                else {
+                    // const member = findFromSet<userSocket>((user) => { return user.username == payload.username }, room.members)!;
+                    const member = room.members.find(member => member.username === payload.username);
+                    const updatedSockets = findFromSet((user) => { return user.username == payload.username; }, connectedUsers);
+                    const tempMembers = [];
+                    for (let i = 0; i < room.members.length; i++) {
+                        if (room.members[i].username !== payload.username) {
+                            tempMembers.push(room.members[i]);
+                        }
+                    }
+                    tempMembers.push(updatedSockets);
+                    room.members = tempMembers;
+                    const members = room.members.map(member => member.username);
                     socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members });
                 }
             });
@@ -121,28 +153,62 @@ io.on("connection", (socket) => {
             socket.emit("Message Error", { status: "error", message: "room not found" });
         }
     });
+    // socket.on("disconnect", () => {
+    //     const delThis = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
+    //     const connectedRooms = findMultipleFromSet<roomType>((room) => {
+    //         try {
+    //             const mappedMembers = room.members.map(member => { return member.sockets });
+    //             return mappedMembers.includes(socket)
+    //         } catch (err) {
+    //             return false;
+    //         }
+    //     }, rooms);
+    //     connectedRooms.forEach(connectedRoom => {
+    //         connectedRoom.members = connectedRoom.members.filter(member => {
+    //             return member.sockets !== socket;
+    //         })
+    //     })
+    //     if (delThis) {
+    //         connectedUsers.delete(delThis)
+    //     }
+    // })
     socket.on("disconnect", () => {
-        const delThis = findFromSet((user) => { return user.socket === socket; }, connectedUsers);
-        const connectedRooms = findMultipleFromSet((room) => {
-            try {
-                const mappedMembers = room.members.map(member => { return member.socket; });
-                return mappedMembers.includes(socket);
+        console.log("disconnected");
+        const delThis = findFromSet((user) => { return user.sockets.includes(socket); }, connectedUsers);
+        const user = findFromSet((user) => { return user.sockets.includes(socket); }, connectedUsers);
+        if (user) {
+            if (user.sockets.length > 1) {
+                user.sockets = user.sockets.filter(s => s !== socket);
             }
-            catch (err) {
-                return false;
+            else {
+                const connectedRooms = findMultipleFromSet((room) => {
+                    try {
+                        const members = room.members;
+                        return members.some(member => member.sockets.includes(socket));
+                    }
+                    catch (err) {
+                        return false;
+                    }
+                }, rooms);
+                connectedRooms.forEach(connectedRoom => {
+                    connectedRoom.members = connectedRoom.members.filter(member => {
+                        return !member.sockets.some(s => s === socket);
+                    });
+                });
             }
-        }, rooms);
-        connectedRooms.forEach(connectedRoom => {
-            connectedRoom.members = connectedRoom.members.filter(member => {
-                return member.socket !== socket;
-            });
-        });
-        if (delThis) {
-            connectedUsers.delete(delThis);
         }
     });
 });
 httpServer.listen(4000);
+function deepIncludes(arr, item) {
+    let length = arr.length;
+    for (let i = 0; i < length; i++) {
+        if (JSON.stringify(arr[i]) === JSON.stringify(item)) {
+            return true;
+        }
+    }
+    return false;
+}
 function findFromSet(callback, set) {
     const iterable = set.values();
     for (const el of iterable) {
@@ -165,7 +231,9 @@ function findMultipleFromSet(callback, set) {
 function emitAll(event, message, room) {
     room.members.forEach(member => {
         console.log("emmitting for ", member.username);
-        member.socket.emit(event, message);
+        member.sockets.forEach(socket => {
+            socket.emit(event, message);
+        });
     });
 }
 //sha-256 fucntion

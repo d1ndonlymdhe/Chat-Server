@@ -30,7 +30,7 @@ app.get("/", (req, res) => {
 type username = string;
 type userSocket = {
     username: username;
-    socket: Socket;
+    sockets: Socket[];
 }
 type roomType = {
     members: userSocket[];
@@ -42,12 +42,26 @@ const rooms: Set<roomType> = new Set();
 io.on("connection", (socket: Socket) => {
     console.log("a user connected")
     socket.on("subscribe", (payload: { username: username }) => {
-        const user: userSocket = {
-            username: payload.username,
-            socket: socket,
+        const isAlreadySubscribed = findFromSet(user => user.username === payload.username, connectedUsers);
+        if (isAlreadySubscribed) {
+            isAlreadySubscribed.sockets.push(socket);
+            console.log(`${payload.username} subscribed again`)
+            console.log("hello")
+            const connectedRooms = findMultipleFromSet<roomType>((room) => {
+                try {
+                    const members = room.members
+                    return members.some(member => member.sockets.includes(socket))
+                } catch (err) {
+                    return false;
+                }
+            }, rooms)
+            const connectedRoomIds = connectedRooms.map(room => room.roomId)
+            console.log("join These rooms", connectedRoomIds)
+            socket.emit("already subscribed", { joinThese: connectedRoomIds })
+        } else {
+            connectedUsers.add({ username: payload.username, sockets: [socket] })
+            console.log(`${payload.username} subscribed`)
         }
-        connectedUsers.add(user)
-        console.log(`${payload.username} subscribed`)
         // console.log(connectedUsers);
     })
     socket.on("createRoom", (payload: { self: username, reciever: username }) => {
@@ -94,7 +108,22 @@ io.on("connection", (socket: Socket) => {
                 const members = room.members.map(member => member.username);
                 if (!members.includes(payload.username)) {
                     console.log(`${payload.username} joined ${room.roomId}`)
-                    room.members.push({ username: payload.username, socket: socket })
+                    room.members.push({ username: payload.username, sockets: [socket] })
+                    console.log({ status: "success", roomId: room.roomId, members: members })
+                    socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members })
+                } else {
+                    // const member = findFromSet<userSocket>((user) => { return user.username == payload.username }, room.members)!;
+                    const member = room.members.find(member => member.username === payload.username)!;
+                    const updatedSockets = findFromSet<userSocket>((user) => { return user.username == payload.username }, connectedUsers)!;
+                    const tempMembers = []
+                    for (let i = 0; i < room.members.length; i++) {
+                        if (room.members[i].username !== payload.username) {
+                            tempMembers.push(room.members[i])
+                        }
+                    }
+                    tempMembers.push(updatedSockets)
+                    room.members = tempMembers
+                    const members = room.members.map(member => member.username);
                     socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members })
                 }
             })
@@ -129,28 +158,64 @@ io.on("connection", (socket: Socket) => {
             socket.emit("Message Error", { status: "error", message: "room not found" })
         }
     })
+    // socket.on("disconnect", () => {
+    //     const delThis = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
+    //     const connectedRooms = findMultipleFromSet<roomType>((room) => {
+    //         try {
+    //             const mappedMembers = room.members.map(member => { return member.sockets });
+    //             return mappedMembers.includes(socket)
+    //         } catch (err) {
+    //             return false;
+    //         }
+    //     }, rooms);
+    //     connectedRooms.forEach(connectedRoom => {
+    //         connectedRoom.members = connectedRoom.members.filter(member => {
+    //             return member.sockets !== socket;
+    //         })
+    //     })
+    //     if (delThis) {
+    //         connectedUsers.delete(delThis)
+    //     }
+    // })
     socket.on("disconnect", () => {
-        const delThis = findFromSet<userSocket>((user) => { return user.socket === socket }, connectedUsers);
-        const connectedRooms = findMultipleFromSet<roomType>((room) => {
-            try {
-                const mappedMembers = room.members.map(member => { return member.socket });
-                return mappedMembers.includes(socket)
-            } catch (err) {
-                return false;
+        console.log("disconnected");
+        const delThis = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
+        const user = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
+        if (user) {
+            if (user.sockets.length > 1) {
+                user.sockets = user.sockets.filter(s => s !== socket);
+            } else {
+                const connectedRooms = findMultipleFromSet<roomType>((room) => {
+                    try {
+                        const members = room.members
+                        return members.some(member => member.sockets.includes(socket))
+                    } catch (err) {
+                        return false;
+                    }
+                }, rooms)
+                connectedRooms.forEach(connectedRoom => {
+                    connectedRoom.members = connectedRoom.members.filter(member => {
+                        return !member.sockets.some(s => s === socket);
+                    })
+                })
             }
-        }, rooms);
-        connectedRooms.forEach(connectedRoom => {
-            connectedRoom.members = connectedRoom.members.filter(member => {
-                return member.socket !== socket;
-            })
-        })
-        if (delThis) {
-            connectedUsers.delete(delThis)
         }
+
     })
 })
 
 httpServer.listen(4000)
+
+function deepIncludes<T>(arr: T[], item: T): boolean {
+    let length = arr.length;
+    for (let i = 0; i < length; i++) {
+        if (JSON.stringify(arr[i]) === JSON.stringify(item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function findFromSet<T>(callback: (arg1: T) => boolean, set: Set<T>) {
     const iterable = set.values();
     for (const el of iterable) {
@@ -173,7 +238,9 @@ function findMultipleFromSet<T>(callback: (arg1: T) => boolean, set: Set<T>) {
 function emitAll(event: string, message: Object, room: roomType) {
     room.members.forEach(member => {
         console.log("emmitting for ", member.username);
-        member.socket.emit(event, message)
+        member.sockets.forEach(socket => {
+            socket.emit(event, message)
+        })
     })
 }
 
