@@ -148,27 +148,6 @@ io.on("connection", (socket: Socket) => {
             connectedUsers.delete(delThis)
         }
     })
-    socket.on("liked", (payload: { postId: string, to: username, from: username }) => {
-        const { postId, to, from } = payload;
-        const reciever = findFromSet<userSocket>((user) => { return user.username == to }, connectedUsers);
-        if (!reciever) {
-            mongoose.connect(mongoURI).then(() => {
-                const newNotification = new Notification();
-                newNotification.type = "like";
-                newNotification.message = JSON.stringify({ postId })
-                newNotification.to = toolbar;
-                newNotification.from = from;
-                newNotification.save().then(() => {
-                    User.findOne({ username: to }).then((user) => {
-                        user.notifications.push(newNotification._id);
-                        user.save()
-                    })
-                })
-            })
-        } else {
-            reciever.socket.emit("liked", { postId: postId, from: from });
-        }
-    })
 })
 
 httpServer.listen(4000)

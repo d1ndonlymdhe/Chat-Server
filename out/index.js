@@ -9,7 +9,6 @@ const socket_io_1 = require("socket.io");
 const crypto_1 = __importDefault(require("crypto"));
 const User_1 = __importDefault(require("./utils/User"));
 const Message_1 = __importDefault(require("./utils/Message"));
-const Notification_1 = __importDefault(require("./utils/Notification"));
 const mongoose_1 = __importDefault(require("mongoose"));
 //setup dotenv
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -140,28 +139,6 @@ io.on("connection", (socket) => {
         });
         if (delThis) {
             connectedUsers.delete(delThis);
-        }
-    });
-    socket.on("liked", (payload) => {
-        const { postId, to, from } = payload;
-        const reciever = findFromSet((user) => { return user.username == to; }, connectedUsers);
-        if (!reciever) {
-            mongoose_1.default.connect(mongoURI).then(() => {
-                const newNotification = new Notification_1.default();
-                newNotification.type = "like";
-                newNotification.message = JSON.stringify({ postId });
-                newNotification.to = toolbar;
-                newNotification.from = from;
-                newNotification.save().then(() => {
-                    User_1.default.findOne({ username: to }).then((user) => {
-                        user.notifications.push(newNotification._id);
-                        user.save();
-                    });
-                });
-            });
-        }
-        else {
-            reciever.socket.emit("liked", { postId: postId, from: from });
         }
     });
 });
