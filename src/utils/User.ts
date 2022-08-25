@@ -15,6 +15,10 @@ const userSchema = new Schema({
         type: String,
         required: true
     },
+    salt: {
+        type: String,
+        required: true
+    },
     followingCount: {
         type: Number,
         default: 0,
