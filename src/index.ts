@@ -205,7 +205,7 @@ io.on("connection", (socket: Socket) => {
 })
 
 
-httpServer.listen(process.env.PATH || 4000)
+httpServer.listen(process.env.PORT || 4000)
 
 function checkDuplicateInArr<T>(e: T, arr: T[]) {
     const length = arr.length;

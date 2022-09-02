@@ -202,7 +202,7 @@ io.on("connection", (socket) => {
         }
     });
 });
-httpServer.listen(process.env.PATH || 4000);
+httpServer.listen(process.env.PORT || 4000);
 function checkDuplicateInArr(e, arr) {
     const length = arr.length;
     let counter = 0;
