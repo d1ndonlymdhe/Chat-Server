@@ -20,6 +20,10 @@ const userSchema = new mongoose_1.Schema({
         type: String,
         required: true
     },
+    salt: {
+        type: String,
+        required: true
+    },
     followingCount: {
         type: Number,
         default: 0,

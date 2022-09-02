@@ -7,103 +7,110 @@ import Message from "./utils/Message";
 import mongoose from "mongoose";
 //setup dotenv
 import dotenv from "dotenv";
+import { ReservedOrUserEventNames, ReservedOrUserListener } from "socket.io/dist/typed-events";
 dotenv.config();
 const mongoURI = "mongodb://127.0.0.1:27017/instagram";
 
-
 const app = express();
 const httpServer = createServer(app);
+
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
         methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     }
-});
-
-app.get("/", (req, res) => {
-    res.send("ok")
 })
 
-type username = string;
-type userSocket = {
-    username: username;
-    sockets: Socket[];
-}
-type roomType = {
-    members: userSocket[];
-    roomId: string;
-}
-const connectedUsers: Set<userSocket> = new Set();
-const rooms: Set<roomType> = new Set();
+app.get("/", (req, res) => {
+    res.send("Ok");
+})
 
+type user = {
+    username: string,
+    socketId: string
+}
+type room = {
+    id: string;
+    members: string[]
+}
+let users: user[] = []
+let rooms: room[] = []
+let connectedSockets: Socket[] = []
 io.on("connection", (socket: Socket) => {
-    console.log("a user connected")
-    socket.on("subscribe", (payload: { username: username }) => {
-        const isAlreadySubscribed = findFromSet(user => user.username === payload.username, connectedUsers);
-        if (isAlreadySubscribed) {
-            isAlreadySubscribed.sockets.push(socket);
-            console.log(`${payload.username} subscribed again`)
-            console.log("hello")
-            const connectedRooms = findMultipleFromSet<roomType>((room) => {
-                try {
-                    const members = room.members
-                    return members.some(member => member.sockets.includes(socket))
-                } catch (err) {
-                    return false;
+    console.log("New Conection")
+    socket.on("subscribe", (payload: { username: string }) => {
+        const { username } = payload
+        const user = { username, socketId: socket.id };
+        users.push(user);
+        connectedSockets.push(socket)
+        const userAlreadyExists = checkDuplicateInArr(user, users);
+        if (userAlreadyExists) {
+            console.log(username + " subscribed again");
+            //find connected rooms
+            const roomIdsToBeConnected: string[] = [];
+            const numberOfRooms = rooms.length
+            for (let i = 0; i < numberOfRooms; i++) {
+                if (existsInArr(user.username, rooms[i].members)) {
+                    roomIdsToBeConnected.push(rooms[i].id);
                 }
-            }, rooms)
-            const connectedRoomIds = connectedRooms.map(room => room.roomId)
-            console.log("join These rooms", connectedRoomIds)
-            socket.emit("already subscribed", { joinThese: connectedRoomIds })
+            }
+            console.log("Join These Rooms ", roomIdsToBeConnected)
+            socket.emit("already subscribed", { joinThese: roomIdsToBeConnected })
         } else {
-            connectedUsers.add({ username: payload.username, sockets: [socket] })
-            console.log(`${payload.username} subscribed`)
+            console.log(username + " subscribed")
+            console.log("users = ", users);
         }
-        // console.log(connectedUsers);
     })
-    socket.on("createRoom", (payload: { self: username, reciever: username }) => {
+    socket.on("createRoom", (payload: { self: string, reciever: string }) => {
         let { self, reciever } = payload;
         const members = [self, reciever];
-        console.log("members = ", members)
-        if (members.length < 2) {
-            socket.emit("roomCreateError", { status: "error", message: "not enough members" });
+        if (!self || !reciever) {
+            socket.emit("roomCreateError", { status: "error", message: "not enougn members" })
         } else {
-            //get all member sockets
-            const memberSockets = members.map(member => {
-                const memberSocket = findFromSet<userSocket>((user) => { return user.username == member }, connectedUsers)!;
-                return memberSocket;
-            })
-            //check all connected;
-            const allConnected = members.filter(member => {
-                return findFromSet<userSocket>((user) => { return user.username == member }, connectedUsers) !== undefined;
-            }).length == members.length
-            const roomWithMembersAlreadyExists = findFromSet<roomType>((room) => {
-                return JSON.stringify(room.members.map(m => m.username)) === JSON.stringify(members)
-            }, rooms)
-            const roomId = sha256(members.join("") + (new Date().getTime()));
-            if (allConnected) {
-                if (!roomWithMembersAlreadyExists) {
-                    const room = {
-                        members: memberSockets,
-                        roomId: roomId,
+            const socketsToAdd: Socket[] = [];
+            const numberOfUsers = users.length;
+            for (let i = 0; i < numberOfUsers; i++) {
+                if (users[i].username === self || users[i].username === reciever) {
+                    const numberOfSockets = connectedSockets.length;
+                    const userSocketId = users[i].socketId
+                    for (let j = 0; j < numberOfSockets; j++) {
+                        if (connectedSockets[j].id === userSocketId) {
+                            socketsToAdd.push(connectedSockets[j])
+                        }
                     }
-                    rooms.add(room)
-                    console.log(rooms);
-                    emitAll("roomCreated", { status: "success", roomId: roomId, members: members }, room)
                 }
+            }
+            //if the reciever is connected
+            if (existsInArr(reciever, users.map(user => user.username))) {
+                console.log("normal room creation")
+                const room: room = {
+                    members: [self, reciever],
+                    id: sha256(members.join("") + (new Date().getTime()))
+                }
+                rooms.push(room)
+                console.log("Created Room = ", room);
+                socket.join(room.id);
+                socketsToAdd.forEach(socket => {
+                    socket.join(room.id)
+                })
+                socket.to(room.id).emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
+                socket.emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
             } else {
-                const room = {
-                    members: [{ username: self, sockets: [socket] }],
-                    roomId: roomId,
+                console.log("special room creation")
+                const room: room = {
+                    members: [self, reciever],
+                    id: sha256(self + reciever + (new Date().getTime()))
                 }
-                rooms.add(room)
-                console.log(rooms);
-                socket.emit("roomCreated", { status: "success", roomId: roomId, members: members })
+                rooms.push(room);
+                socket.join(room.id);
+                socket.emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
+                console.log("room created while reciever was offline");
+                console.log("Created Room = ", room);
                 mongoose.connect(mongoURI).then(() => {
                     const newMessage = new Message();
                     newMessage.to = reciever;
                     newMessage.from = self;
-                    newMessage.roomId = roomId;
+                    newMessage.roomId = room.id;
                     newMessage.content = `room created while ${reciever} was offline`;
                     newMessage.save().then(() => {
                         User.findOne({ username: reciever }).then((user) => {
@@ -112,49 +119,37 @@ io.on("connection", (socket: Socket) => {
                         })
                     })
                 })
-                // socket.emit("room creation error", { message: `${reciever} not connected` })
             }
         }
     })
     socket.on("joinRooms", (payload: { roomIds: string[], username: string }) => {
-        const roomsToBeConnected = findMultipleFromSet<roomType>((room) => { return payload.roomIds.includes(room.roomId) }, rooms)!;
-        if (roomsToBeConnected) {
-            roomsToBeConnected.forEach(room => {
-                console.log(room)
-                const members = room.members.map(member => member.username);
-                if (!members.includes(payload.username)) {
-                    console.log(`${payload.username} joined ${room.roomId}`)
-                    room.members.push({ username: payload.username, sockets: [socket] })
-                    console.log({ status: "success", roomId: room.roomId, members: members })
-                    socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members })
-                } else {
-                    // const member = findFromSet<userSocket>((user) => { return user.username == payload.username }, room.members)!;
-                    const member = room.members.find(member => member.username === payload.username)!;
-                    const updatedSockets = findFromSet<userSocket>((user) => { return user.username == payload.username }, connectedUsers)!;
-                    const tempMembers = []
-                    for (let i = 0; i < room.members.length; i++) {
-                        if (room.members[i].username !== payload.username) {
-                            tempMembers.push(room.members[i])
-                        }
-                    }
-                    tempMembers.push(updatedSockets)
-                    room.members = tempMembers
-                    const members = room.members.map(member => member.username);
-                    socket.emit("roomCreated", { status: "success", roomId: room.roomId, members: members })
-                }
-            })
+        const { roomIds, username } = payload;
+        const roomsToBeConnected: room[] = [];
+        const numberOfRooms = rooms.length;
+        for (let i = 0; i < numberOfRooms; i++) {
+            //rooms itself is mutated
+            const room = rooms[i]
+            if (existsInArr(room.id, roomIds)) {
+                room.members.push(username);
+                socket.join(room.id)
+                //client expects just two members so need to remove duplicates and send
+                socket.emit("roomCreated", { status: "success", roomId: room.id, members: removeAllDuplicates(room.members) })
+                roomsToBeConnected.push(room);
+            }
         }
     })
-    socket.on("message", (payload: { to: username, from: username, message: string, roomId: string }) => {
+    socket.on("message", (payload: { to: string, from: string, message: string, roomId: string }) => {
         const { roomId, to, from, message } = payload;
-        console.log("message payload = ", payload);
-        const room = findFromSet<roomType>((room) => { return room.roomId == roomId }, rooms);
 
-        if (room) {
-            const recieverConnected = findFromSet<userSocket>((user) => { return user.username == to }, connectedUsers) !== undefined;
+        const roomExists = existsInArr(roomId, rooms.map(room => room.id));
+        if (roomExists) {
+            const recieverConnected = existsInArr(to, users.map(user => user.username));
             if (recieverConnected) {
-                emitAll("newMessage", payload, room);
+                console.log("Normal Message");
+                socket.emit("newMessage", payload);
+                socket.to(roomId).emit("newMessage", payload)
             } else {
+                console.log("Write message to Database")
                 mongoose.connect(mongoURI).then(() => {
                     const newMessage = new Message();
                     newMessage.to = to;
@@ -168,81 +163,124 @@ io.on("connection", (socket: Socket) => {
                         })
                     })
                 })
-                const user = findFromSet<userSocket>((user) => { return user.username == from }, connectedUsers);
-                user?.sockets.forEach(socket => {
-                    socket.emit("newMessage", payload);
-                })
+                socket.to(roomId).emit("newMessage", payload)
+                socket.emit("newMessage", payload);
             }
-        } else {
-            socket.emit("Message Error", { status: "error", message: "room not found" })
         }
     })
     socket.on("disconnect", () => {
-        console.log("disconnected");
-        const user = findFromSet<userSocket>((user) => { return user.sockets.includes(socket) }, connectedUsers);
-        if (user) {
-            if (user.sockets.length > 1) {
-                user.sockets = user.sockets.filter(s => s !== socket);
-            } else {
-                const connectedRooms = findMultipleFromSet<roomType>((room) => {
-                    try {
-                        const members = room.members
-                        return members.some(member => member.sockets.includes(socket))
-                    } catch (err) {
-                        return false;
-                    }
-                }, rooms)
-                connectedRooms.forEach(connectedRoom => {
-                    connectedRoom.members = connectedRoom.members.filter(member => {
-                        return !member.sockets.some(s => s === socket);
-                    })
-                })
+        let user: user | undefined = undefined
+        const numberOfUsers = users.length;
+        for (let i = 0; i < numberOfUsers; i++) {
+            if (users[i].socketId == socket.id) {
+                user = users[i];
+                break;
             }
-            connectedUsers.delete(user)
+        }
+        const numberOfConnectedSockets = connectedSockets.length
+        const tempSockets: Socket[] = []
+        for (let i = 0; i < numberOfConnectedSockets; i++) {
+            if (connectedSockets[i].id != socket.id) {
+                tempSockets.push(connectedSockets[i])
+            } else {
+                continue;
+            }
+        }
+        connectedSockets = tempSockets
+        if (user) {
+            const numberOfRooms = rooms.length;
+            const tempUsers: user[] = [];
+            for (let i = 0; i < users.length; i++) {
+                const innerUser = users[i];
+                if (user.username != innerUser.username && user.socketId != innerUser.socketId) {
+                    tempUsers.push(innerUser)
+                }
+                users = tempUsers;
+            }
+            users = removeFromArr(user, users);
+            for (let i = 0; i < numberOfRooms; i++) {
+                if (existsInArr(user.username, rooms[i].members)) {
+                    rooms[i].members = removeFromArr(user.username, rooms[i].members);
+                }
+            }
+            console.log(`${user.username} disconnected`)
+            console.log("updated users array = ", users)
         }
     })
 })
 
+
 httpServer.listen(4000)
 
-function deepIncludes<T>(arr: T[], item: T): boolean {
-    let length = arr.length;
-    for (let i = 0; i < length; i++) {
-        if (JSON.stringify(arr[i]) === JSON.stringify(item)) {
-            return true;
+function checkDuplicateInArr<T>(e: T, arr: T[]) {
+    const length = arr.length;
+    let counter = 0;
+    if (typeof e == "object") {
+        for (let i = 0; i < length; i++) {
+            if (JSON.stringify(e) === JSON.stringify(arr[i])) {
+                counter++;
+                if (counter === 2) {
+                    return true;
+                }
+            }
+        }
+    } else {
+        for (let i = 0; i < length; i++) {
+            if (e === arr[i]) {
+                counter++;
+                if (counter === 2) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+function existsInArr<T>(e: T, arr: T[]) {
+    const length = arr.length;
+    if (typeof e == "object") {
+        for (let i = 0; i < length; i++) {
+            if (JSON.stringify(e) === JSON.stringify(arr[i])) {
+                return true;
+            }
+        }
+    } else {
+        for (let i = 0; i < length; i++) {
+            if (e === arr[i]) {
+                return true;
+            }
         }
     }
     return false;
 }
 
-function findFromSet<T>(callback: (arg1: T) => boolean, set: Set<T>) {
-    const iterable = set.values();
-    for (const el of iterable) {
-        if (callback(el)) {
-            return el;
-        }
-    }
-    return undefined
+console.log(removeAllDuplicates([{ a: 1, b: 2 }, { a: 1, b: 3 }, { a: 1, b: 2 }, { a: 5, b: 4 }, { a: 1, b: 3 }]));
+
+function removeAllDuplicates<T>(arr: T[]) {
+    const set = new Set(arr)
+    const retArr: T[] = [];
+    set.forEach(s => {
+        retArr.push(s);
+    })
+    return retArr;
 }
-function findMultipleFromSet<T>(callback: (arg1: T) => boolean, set: Set<T>) {
-    const iterable = set.values();
+function isEqual(a: any, b: any) {
+    if (typeof a == "object" || typeof b == "object") {
+        return JSON.stringify(a) == JSON.stringify(b)
+    } else {
+        return a === b;
+    }
+}
+function removeFromArr<T>(e: T, arr: T[]) {
+    const length = arr.length;
     const retArr: T[] = []
-    for (const el of iterable) {
-        if (callback(el)) {
-            retArr.push(el)
+    for (let i = 0; i < length; i++) {
+        if (!isEqual(e, arr[i])) {
+            retArr.push(arr[i]);
         }
     }
     return retArr;
 }
-function emitAll(event: string, message: Object, room: roomType) {
-    room.members.forEach(member => {
-        console.log("emmitting for ", member.username);
-        member.sockets.forEach(socket => {
-            socket.emit(event, message)
-        })
-    })
-}
-
 //sha-256 fucntion
 function sha256(data: string) {
     //@ts-ignore
