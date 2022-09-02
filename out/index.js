@@ -11,9 +11,7 @@ const User_1 = __importDefault(require("./utils/User"));
 const Message_1 = __importDefault(require("./utils/Message"));
 const mongoose_1 = __importDefault(require("mongoose"));
 //setup dotenv
-const dotenv_1 = __importDefault(require("dotenv"));
-dotenv_1.default.config();
-const mongoURI = "mongodb://127.0.0.1:27017/instagram";
+const mongoURI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/instagram";
 const app = (0, express_1.default)();
 const httpServer = (0, http_1.createServer)(app);
 const io = new socket_io_1.Server(httpServer, {
@@ -204,7 +202,7 @@ io.on("connection", (socket) => {
         }
     });
 });
-httpServer.listen(4000);
+httpServer.listen(process.env.PATH || 4000);
 function checkDuplicateInArr(e, arr) {
     const length = arr.length;
     let counter = 0;

@@ -6,14 +6,9 @@ import User from "./utils/User";
 import Message from "./utils/Message";
 import mongoose from "mongoose";
 //setup dotenv
-import dotenv from "dotenv";
-import { ReservedOrUserEventNames, ReservedOrUserListener } from "socket.io/dist/typed-events";
-dotenv.config();
-const mongoURI = "mongodb://127.0.0.1:27017/instagram";
-
+const mongoURI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/instagram";
 const app = express();
 const httpServer = createServer(app);
-
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
@@ -210,7 +205,7 @@ io.on("connection", (socket: Socket) => {
 })
 
 
-httpServer.listen(4000)
+httpServer.listen(process.env.PATH || 4000)
 
 function checkDuplicateInArr<T>(e: T, arr: T[]) {
     const length = arr.length;
