@@ -246,7 +246,6 @@ function existsInArr(e, arr) {
     }
     return false;
 }
-console.log(removeAllDuplicates([{ a: 1, b: 2 }, { a: 1, b: 3 }, { a: 1, b: 2 }, { a: 5, b: 4 }, { a: 1, b: 3 }]));
 function removeAllDuplicates(arr) {
     const set = new Set(arr);
     const retArr = [];

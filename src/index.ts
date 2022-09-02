@@ -249,7 +249,6 @@ function existsInArr<T>(e: T, arr: T[]) {
     return false;
 }
 
-console.log(removeAllDuplicates([{ a: 1, b: 2 }, { a: 1, b: 3 }, { a: 1, b: 2 }, { a: 5, b: 4 }, { a: 1, b: 3 }]));
 
 function removeAllDuplicates<T>(arr: T[]) {
     const set = new Set(arr)
