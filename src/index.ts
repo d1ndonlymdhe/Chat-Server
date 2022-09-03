@@ -32,7 +32,6 @@ let users: user[] = []
 let rooms: room[] = []
 let connectedSockets: Socket[] = []
 io.on("connection", (socket: Socket) => {
-    console.log("New Conection")
     socket.on("subscribe", (payload: { username: string }) => {
         const { username } = payload
         const user = { username, socketId: socket.id };
@@ -40,7 +39,6 @@ io.on("connection", (socket: Socket) => {
         connectedSockets.push(socket)
         const userAlreadyExists = checkDuplicateInArr(user, users);
         if (userAlreadyExists) {
-            console.log(username + " subscribed again");
             //find connected rooms
             const roomIdsToBeConnected: string[] = [];
             const numberOfRooms = rooms.length
@@ -49,11 +47,8 @@ io.on("connection", (socket: Socket) => {
                     roomIdsToBeConnected.push(rooms[i].id);
                 }
             }
-            console.log("Join These Rooms ", roomIdsToBeConnected)
             socket.emit("already subscribed", { joinThese: roomIdsToBeConnected })
         } else {
-            console.log(username + " subscribed")
-            console.log("users = ", users);
         }
     })
     socket.on("createRoom", (payload: { self: string, reciever: string }) => {
@@ -77,13 +72,11 @@ io.on("connection", (socket: Socket) => {
             }
             //if the reciever is connected
             if (existsInArr(reciever, users.map(user => user.username))) {
-                console.log("normal room creation")
                 const room: room = {
                     members: [self, reciever],
                     id: sha256(members.join("") + (new Date().getTime()))
                 }
                 rooms.push(room)
-                console.log("Created Room = ", room);
                 socket.join(room.id);
                 socketsToAdd.forEach(socket => {
                     socket.join(room.id)
@@ -91,7 +84,6 @@ io.on("connection", (socket: Socket) => {
                 socket.to(room.id).emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
                 socket.emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
             } else {
-                console.log("special room creation")
                 const room: room = {
                     members: [self, reciever],
                     id: sha256(self + reciever + (new Date().getTime()))
@@ -99,8 +91,6 @@ io.on("connection", (socket: Socket) => {
                 rooms.push(room);
                 socket.join(room.id);
                 socket.emit("roomCreated", { status: "success", roomId: room.id, members: [self, reciever] })
-                console.log("room created while reciever was offline");
-                console.log("Created Room = ", room);
                 mongoose.connect(mongoURI).then(() => {
                     const newMessage = new Message();
                     newMessage.to = reciever;
@@ -140,11 +130,9 @@ io.on("connection", (socket: Socket) => {
         if (roomExists) {
             const recieverConnected = existsInArr(to, users.map(user => user.username));
             if (recieverConnected) {
-                console.log("Normal Message");
                 socket.emit("newMessage", payload);
                 socket.to(roomId).emit("newMessage", payload)
             } else {
-                console.log("Write message to Database")
                 mongoose.connect(mongoURI).then(() => {
                     const newMessage = new Message();
                     newMessage.to = to;
@@ -198,8 +186,6 @@ io.on("connection", (socket: Socket) => {
                     rooms[i].members = removeFromArr(user.username, rooms[i].members);
                 }
             }
-            console.log(`${user.username} disconnected`)
-            console.log("updated users array = ", users)
         }
     })
 })
